@@ -1,0 +1,50 @@
+name: LaTeX CI (reusable)
+
+# Reusable build workflow shared across pen-sotashimozono paper repositories.
+# Callers keep their own on: triggers and delegate the build to this file:
+#
+#   jobs:
+#     build:
+#       uses: pen-sotashimozono/.github/.github/workflows/latex-ci.yml@main
+#
+# The checkout below runs against the *caller* repository, so main.tex and
+# figures/ are taken from the repo that calls this workflow.
+
+on:
+  workflow_call:
+    inputs:
+      main-tex:
+        description: "Root .tex file to compile"
+        type: string
+        default: main.tex
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PDF
+    runs-on: [self-hosted, rosina]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Locate TeX Live (user install on Rosina)
+        run: |
+          TEXBIN="$HOME/texlive/2024/bin/x86_64-linux"
+          if [ -x "$TEXBIN/latexmk" ]; then
+            echo "$TEXBIN" >> "$GITHUB_PATH"
+          else
+            echo "ERROR: latexmk not found at $TEXBIN" >&2
+            exit 1
+          fi
+
+      - name: Compile LaTeX
+        run: |
+          mkdir -p out
+          latexmk -lualatex -interaction=nonstopmode -halt-on-error -file-line-error -output-directory=out "${{ inputs.main-tex }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: paper-pdf
+          path: out/*.pdf
+          retention-days: 14
