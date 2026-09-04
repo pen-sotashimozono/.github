@@ -1,0 +1,43 @@
+name: Paper verify references (reusable)
+
+# Checks that every DOI / arXiv reference in references.bib resolves
+# to real metadata (Crossref / arXiv). Backed by sotashimozono/doiget.
+#
+# contact-email is required rather than defaulted: Crossref's polite pool wants
+# a real address for whoever runs the query, and this repository is public, so
+# the address belongs in the caller and not here.
+
+on:
+  workflow_call:
+    inputs:
+      contact-email:
+        description: "Address sent to Crossref as the polite-pool contact."
+        type: string
+        required: true
+      strict:
+        description: "Fail the job on an unresolvable entry rather than warning."
+        type: string
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify references resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/doiget
+          key: doiget-resolver-${{ hashFiles('references.bib') }}
+          restore-keys: doiget-resolver-
+
+      - uses: sotashimozono/doiget/.github/actions/verify@next
+        with:
+          path: references.bib
+          strict: ${{ inputs.strict }}
+          contact-email: ${{ inputs.contact-email }}

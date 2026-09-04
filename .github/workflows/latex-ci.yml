@@ -1,5 +1,12 @@
-name: LaTeX CI (reusable)
+name: LaTeX CI (reusable, deprecated)
 
+# DEPRECATED -- use paper-build.yml. This one builds a single hard-named root on
+# the self-hosted rosina runner and knows nothing about docs.toml, so it cannot
+# build a repository with more than one document, validate the semver bump, or
+# feed paper-release.yml. Its only caller is pen-sotashimozono/MasterThesis,
+# which predates docs.toml; it is kept byte-for-byte below so that repository
+# keeps building, and should be deleted once MasterThesis carries a docs.toml.
+#
 # Reusable build workflow shared across pen-sotashimozono paper repositories.
 # Callers keep their own on: triggers and delegate the build to this file:
 #
