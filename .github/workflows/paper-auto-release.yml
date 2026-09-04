@@ -1,0 +1,53 @@
+name: Paper auto release (reusable)
+
+# After a merge, release every document whose version has no matching tag yet:
+# a missing tag means the merged PR raised that version. The document list is
+# read from docs.toml, never written here.
+#
+# No PAT required: workflow_dispatch is the one event GITHUB_TOKEN can fire
+# cross-workflow. The caller's Release.yml creates and pushes the tag, which is
+# why `release-workflow` names a file in the *caller* -- dispatching the
+# reusable directly is not possible.
+
+on:
+  workflow_call:
+    inputs:
+      release-workflow:
+        description: "Workflow file in the caller that performs a release."
+        type: string
+        required: false
+        default: Release.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    name: Tag and release each document with a new version
+    # The caller is expected to gate on merged == true, and repeating it here
+    # costs nothing: a pull_request checkout resolves to the PR's own tree, so a
+    # closed-unmerged PR would otherwise release the bump it was carrying.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Dispatch a release per newly bumped document
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORKFLOW: ${{ inputs.release-workflow }}
+        run: |
+          set -euo pipefail
+          for DOC in $(python3 .github/scripts/docs.py ids); do
+            V="$(python3 .github/scripts/docs.py version "$DOC")"
+            TAG="$(python3 .github/scripts/docs.py tag "$DOC")"
+
+            if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+              echo "${DOC}: ${TAG} already exists — version was not bumped. No release."
+              continue
+            fi
+
+            echo "${DOC}: new version ${V} — dispatching ${RELEASE_WORKFLOW} for ${TAG}."
+            gh workflow run "${RELEASE_WORKFLOW}" --ref main --field document="${DOC}" --field version="${V}"
+          done
