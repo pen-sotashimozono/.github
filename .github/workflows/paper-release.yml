@@ -23,6 +23,19 @@ on:
         type: string
         required: false
         default: ""
+      shelf-repo:
+        description: "Repository holding the shelf. Empty to never shelve."
+        type: string
+        required: false
+        default: pen-sotashimozono/paper-shelf
+    secrets:
+      shelf-deploy-key:
+        description: >-
+          Write deploy key for the shelf repository. While it is absent the
+          shelve job says so and does nothing, so a caller can pass it before it
+          exists and creating the secret is the only step left to switch
+          shelving on.
+        required: false
 
 permissions:
   contents: write
@@ -275,3 +288,91 @@ jobs:
           files: release/*
           body_path: release_notes.md
           generate_release_notes: true
+
+  # Mirrors the PDF this release just published into the shelf, so every
+  # document in the organisation is readable from one directory.
+  #
+  # Inert until the deploy key exists: with no key the job says so and succeeds.
+  # Callers pass the secret before it is created, which costs nothing and means
+  # switching shelving on is creating one secret and editing nothing.
+  #
+  # A deploy key rather than a PAT: it writes to the shelf and to nothing else,
+  # and it does not expire.
+  shelve:
+    name: Add to the shelf
+    needs: [setup, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Is the shelf wired up?
+        id: gate
+        env:
+          KEY: ${{ secrets.shelf-deploy-key }}
+          SHELF: ${{ inputs.shelf-repo }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$SHELF" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No shelf deploy key configured -- the shelf is left alone."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the shelf
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.shelf-repo }}
+          ssh-key: ${{ secrets.shelf-deploy-key }}
+          path: shelf
+
+      # Named after the tag because that is what Prepare release assets called
+      # it. A failure here fails this job alone -- the release is already out.
+      - name: Fetch the PDF this release published
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.setup.outputs.tag }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "${TAG}.pdf" --dir shelved
+
+      - name: Install the text extractor
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --quiet --disable-pip-version-check pypdf
+
+      # Every attempt starts from the current remote state and re-derives.
+      # Releasing two documents at once is two jobs pushing to one shelf, and
+      # both rewrite index.json and README.md; rebasing those would conflict,
+      # while regenerating them from meta/ once the other commit has landed
+      # cannot. shelf.py update reads only this repository, which is all
+      # GITHUB_TOKEN can reach.
+      - name: Shelve it
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: shelf
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.setup.outputs.tag }}
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY#*/}"
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git fetch --quiet origin "$BRANCH"
+            git reset --quiet --hard FETCH_HEAD
+            python3 scripts/shelf.py update --repo "$REPO" --tag "$TAG" --pdf "${GITHUB_WORKSPACE}/shelved/${TAG}.pdf"
+            git add -A
+            if git diff --cached --quiet; then
+              echo "Nothing to add to the shelf."
+              exit 0
+            fi
+            git commit --quiet -m "shelf: ${REPO} ${TAG}"
+            if git push --quiet origin "HEAD:${BRANCH}"; then
+              exit 0
+            fi
+            echo "Push rejected -- another release shelved first. Retrying (${attempt}/3)."
+          done
+          echo "Could not push to the shelf after three attempts." >&2
+          exit 1
