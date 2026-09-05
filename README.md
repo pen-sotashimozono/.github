@@ -41,6 +41,28 @@ move the tag:
 git tag -f v1 main && git push -f origin v1
 ```
 
+### The shelf
+
+`paper-release.yml` ends with a `shelve` job that mirrors the PDF it just
+published into [`paper-shelf`](https://github.com/pen-sotashimozono/paper-shelf),
+so every document in the organisation is readable from one directory. It is
+**inert until the deploy key exists**: with no key the job reports that and
+succeeds. Callers pass the secret anyway, so switching it on touches no
+repository.
+
+To switch it on:
+
+```sh
+ssh-keygen -t ed25519 -N "" -C "paper-shelf write" -f ~/.ssh/shelf
+gh repo deploy-key add ~/.ssh/shelf.pub -R pen-sotashimozono/paper-shelf --allow-write -t "release shelving"
+gh secret set SHELF_DEPLOY_KEY --org pen-sotashimozono --visibility all < ~/.ssh/shelf
+rm ~/.ssh/shelf ~/.ssh/shelf.pub
+```
+
+A deploy key rather than a PAT: it writes to the shelf and to nothing else, and
+it does not expire. `shelf-repo` can be set to an empty string by a caller that
+should never shelve.
+
 ### Caller templates
 
 Copy these into `<repo>/.github/workflows/`. The file names matter:
@@ -86,6 +108,11 @@ jobs:
       # Empty on a tag push, where the pair is read back out of the tag name.
       document: ${{ inputs.document || '' }}
       version: ${{ inputs.version || '' }}
+    secrets:
+      # Empty until the shelf deploy key exists, and the shelve job then says so
+      # and does nothing. Passing it from the start is what makes switching
+      # shelving on a matter of creating one secret and editing no repository.
+      shelf-deploy-key: ${{ secrets.SHELF_DEPLOY_KEY }}
 ```
 
 ```yaml
