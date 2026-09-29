@@ -94,7 +94,14 @@ jobs:
           TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
           [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
           export PATH="$TL:$PATH"
-          command -v latexpand >/dev/null || tlmgr install latexpand
+          # latexpand is one Perl script; fetch it into ~/.local/bin once rather
+          # than through tlmgr, whose random mirror choice fails intermittently.
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v latexpand >/dev/null; then
+            mkdir -p "$HOME/.local/bin"
+            curl -sfL https://mirrors.ctan.org/support/latexpand/latexpand -o "$HOME/.local/bin/latexpand"
+            chmod +x "$HOME/.local/bin/latexpand"
+          fi
           bash -euo pipefail -c "${PRE:-true}"
           latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
           bash -euo pipefail -c "${POST:-true}"
