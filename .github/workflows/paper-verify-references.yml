@@ -20,13 +20,18 @@ on:
         required: false
         default: "false"
 
+# Runner: a private repository's jobs run on the self-hosted rosina runner (its
+# minutes are not billed); a public one's on GitHub-hosted ubuntu-latest, which
+# is free for public repositories and keeps a fork's pull request off rosina.
+# Steps that differ between the two check runner.environment.
+
 permissions:
   contents: read
 
 jobs:
   verify:
     name: verify references resolve
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -36,8 +41,31 @@ jobs:
           key: doiget-resolver-${{ hashFiles('references.bib') }}
           restore-keys: doiget-resolver-
 
-      - uses: sotashimozono/doiget/.github/actions/verify@next
-        with:
-          path: references.bib
-          strict: ${{ inputs.strict }}
-          contact-email: ${{ inputs.contact-email }}
+      # A pinned, checksummed release binary rather than the doiget action, which
+      # compiles doiget from source with cargo on every run (minutes of CPU, and
+      # a Rust toolchain rosina does not carry). Move DOIGET_VERSION and its
+      # SHA-256 together.
+      - name: Install doiget
+        env:
+          DOIGET_VERSION: v0.8.13
+          DOIGET_SHA256: 4e6a4d09c6bf4056cb02f64bfeb6e2c71340b80646e6f3afeef4b39557806680
+        run: |
+          set -euo pipefail
+          BIN="$RUNNER_TEMP/doiget-bin"
+          mkdir -p "$BIN"
+          curl -sfL -o "$BIN/doiget" \
+            "https://github.com/QAtlasHub/doiget/releases/download/$DOIGET_VERSION/doiget-linux-x86_64"
+          echo "$DOIGET_SHA256  $BIN/doiget" | sha256sum -c -
+          chmod +x "$BIN/doiget"
+          echo "$BIN" >> "$GITHUB_PATH"
+
+      # Inputs go through env, never into the script body (expression injection).
+      - name: Verify references
+        env:
+          DOIGET_CONTACT_EMAIL: ${{ inputs.contact-email }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          set -euo pipefail
+          args=(verify references.bib --format auto --mode json)
+          if [ "$STRICT" = "true" ]; then args+=(--strict); fi
+          doiget "${args[@]}"
