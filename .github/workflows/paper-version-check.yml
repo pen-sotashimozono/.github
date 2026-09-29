@@ -10,13 +10,18 @@ name: Paper version check (reusable)
 on:
   workflow_call:
 
+# Runner: a private repository's jobs run on the self-hosted rosina runner (its
+# minutes are not billed); a public one's on GitHub-hosted ubuntu-latest, which
+# is free for public repositories and keeps a fork's pull request off rosina.
+# Steps that differ between the two check runner.environment.
+
 permissions:
   contents: read
 
 jobs:
   check:
     name: Validate semver step
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 

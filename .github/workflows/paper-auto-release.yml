@@ -18,6 +18,11 @@ on:
         required: false
         default: Release.yml
 
+# Runner: a private repository's jobs run on the self-hosted rosina runner (its
+# minutes are not billed); a public one's on GitHub-hosted ubuntu-latest, which
+# is free for public repositories and keeps a fork's pull request off rosina.
+# Steps that differ between the two check runner.environment.
+
 permissions:
   contents: write
   actions: write
@@ -29,7 +34,7 @@ jobs:
     # costs nothing: a pull_request checkout resolves to the PR's own tree, so a
     # closed-unmerged PR would otherwise release the bump it was carrying.
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 

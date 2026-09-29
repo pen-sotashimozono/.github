@@ -37,6 +37,11 @@ on:
           shelving on.
         required: false
 
+# Runner: a private repository's jobs run on the self-hosted rosina runner (its
+# minutes are not billed); a public one's on GitHub-hosted ubuntu-latest, which
+# is free for public repositories and keeps a fork's pull request off rosina.
+# Steps that differ between the two check runner.environment.
+
 permissions:
   contents: write
 
@@ -47,7 +52,7 @@ concurrency:
 jobs:
   setup:
     name: Resolve document and verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
       document: ${{ steps.ver.outputs.document }}
@@ -120,20 +125,39 @@ jobs:
   build-document:
     name: Build document
     needs: [setup]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: xu-cheng/latex-action@v4
+      - if: runner.environment == 'github-hosted'
+        uses: xu-cheng/latex-action@v4
         with:
           root_file: ${{ needs.setup.outputs.root }}
           latexmk_use_lualatex: true
           pre_compile: mkdir -p out
-          # Runs inside the container because latexpand and latexmk live there,
-          # not on the runner host. The script compiles the bundle in isolation
+          # On GitHub-hosted runners this runs inside the container, where
+          # latexpand and latexmk live; on rosina, in the step below. The script compiles the bundle in isolation
           # and fails the job if it does not build, so a release cannot ship a
           # tarball that arXiv will reject.
           post_compile: sh .github/scripts/arxiv_bundle.sh "${{ needs.setup.outputs.document }}" arxiv-src
+
+      - name: Compile LaTeX on rosina (the runner's own TeX Live)
+        if: runner.environment != 'github-hosted'
+        env:
+          ROOT: ${{ needs.setup.outputs.root }}
+          PRE: |
+            mkdir -p out
+          POST: sh .github/scripts/arxiv_bundle.sh "${{ needs.setup.outputs.document }}" arxiv-src
+        run: |
+          set -euo pipefail
+          # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
+          TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
+          [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
+          export PATH="$TL:$PATH"
+          command -v latexpand >/dev/null || tlmgr install latexpand
+          bash -euo pipefail -c "${PRE:-true}"
+          latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
+          bash -euo pipefail -c "${POST:-true}"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -148,7 +172,7 @@ jobs:
   build-diff:
     name: Build latexdiff PDF
     needs: [setup]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -180,7 +204,7 @@ jobs:
       # \input child, which is where the content sits once the document is
       # split into notes/*.tex — so flatten both revisions first.
       - name: Compile latexdiff
-        if: steps.tags.outputs.prev != ''
+        if: steps.tags.outputs.prev != '' && runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
         with:
           root_file: diff.tex
@@ -191,6 +215,26 @@ jobs:
             latexpand "${{ needs.setup.outputs.root }}" > new_flat.tex
             latexdiff prev_flat.tex new_flat.tex > diff.tex
 
+      - name: Compile latexdiff on rosina (the runner's own TeX Live)
+        if: steps.tags.outputs.prev != '' && runner.environment != 'github-hosted'
+        env:
+          ROOT: diff.tex
+          PRE: |
+            mkdir -p out
+            (cd prev_rev && latexpand "${{ needs.setup.outputs.root }}" > ../prev_flat.tex)
+            latexpand "${{ needs.setup.outputs.root }}" > new_flat.tex
+            latexdiff prev_flat.tex new_flat.tex > diff.tex
+        run: |
+          set -euo pipefail
+          # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
+          TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
+          [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
+          export PATH="$TL:$PATH"
+          command -v latexpand >/dev/null || tlmgr install latexpand
+          bash -euo pipefail -c "${PRE:-true}"
+          latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
+          bash -euo pipefail -c "${POST:-true}"
+
       - uses: actions/upload-artifact@v7
         if: steps.tags.outputs.prev != ''
         with:
@@ -200,16 +244,34 @@ jobs:
   build-supplementary:
     name: Build supplementary
     needs: [setup]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     if: needs.setup.outputs.has-supplemental == 'true'
     steps:
       - uses: actions/checkout@v7
 
-      - uses: xu-cheng/latex-action@v4
+      - if: runner.environment == 'github-hosted'
+        uses: xu-cheng/latex-action@v4
         with:
           root_file: supplemental.tex
           latexmk_use_lualatex: true
           pre_compile: mkdir -p out
+
+      - name: Compile LaTeX on rosina (the runner's own TeX Live)
+        if: runner.environment != 'github-hosted'
+        env:
+          ROOT: supplemental.tex
+          PRE: |
+            mkdir -p out
+        run: |
+          set -euo pipefail
+          # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
+          TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
+          [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
+          export PATH="$TL:$PATH"
+          command -v latexpand >/dev/null || tlmgr install latexpand
+          bash -euo pipefail -c "${PRE:-true}"
+          latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
+          bash -euo pipefail -c "${POST:-true}"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -219,7 +281,7 @@ jobs:
   release:
     name: GitHub Release
     needs: [setup, build-document, build-diff, build-supplementary]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     if: always() && needs.setup.result == 'success' && needs.build-document.result == 'success' && needs.build-diff.result != 'cancelled' && (needs.build-supplementary.result == 'success' || needs.build-supplementary.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
@@ -301,7 +363,7 @@ jobs:
   shelve:
     name: Add to the shelf
     needs: [setup, release]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - name: Is the shelf wired up?
         id: gate
@@ -336,9 +398,16 @@ jobs:
       - name: Install the text extractor
         if: steps.gate.outputs.enabled == 'true'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq poppler-utils
-          python3 -m pip install --quiet --disable-pip-version-check pypdf
+          # rosina already has poppler and no passwordless sudo; pypdf goes to
+          # the user site there (Ubuntu's system Python refuses a plain pip install).
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq poppler-utils
+            python3 -m pip install --quiet --disable-pip-version-check pypdf
+          else
+            python3 -c "import pypdf" 2>/dev/null ||
+              python3 -m pip install --user --break-system-packages --quiet --disable-pip-version-check pypdf
+          fi
 
       # Every attempt starts from the current remote state and re-derives.
       # Releasing two documents at once is two jobs pushing to one shelf, and

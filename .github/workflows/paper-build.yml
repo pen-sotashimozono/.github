@@ -17,13 +17,18 @@ name: Paper build (reusable)
 on:
   workflow_call:
 
+# Runner: a private repository's jobs run on the self-hosted rosina runner (its
+# minutes are not billed); a public one's on GitHub-hosted ubuntu-latest, which
+# is free for public repositories and keeps a fork's pull request off rosina.
+# Steps that differ between the two check runner.environment.
+
 permissions:
   contents: read
 
 jobs:
   documents:
     name: Enumerate documents
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     outputs:
       ids: ${{ steps.list.outputs.ids }}
     steps:
@@ -39,7 +44,7 @@ jobs:
   build:
     name: Build ${{ matrix.doc }}
     needs: [documents]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +64,7 @@ jobs:
       # One shared .latexmkrc: every document is LuaLaTeX + BibTeX into out/,
       # and the stems differ, so out/main.* and out/notes.* never collide.
       - name: Compile LaTeX
+        if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
         with:
           root_file: ${{ steps.doc.outputs.root }}
@@ -74,6 +80,24 @@ jobs:
           # really "is this document self-contained once flattened", which is
           # worth knowing either way.
           post_compile: sh .github/scripts/arxiv_bundle.sh "${{ matrix.doc }}" arxiv-check
+
+      - name: Compile LaTeX on rosina (the runner's own TeX Live)
+        if: runner.environment != 'github-hosted'
+        env:
+          ROOT: ${{ steps.doc.outputs.root }}
+          PRE: |
+            mkdir -p out
+          POST: sh .github/scripts/arxiv_bundle.sh "${{ matrix.doc }}" arxiv-check
+        run: |
+          set -euo pipefail
+          # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
+          TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
+          [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
+          export PATH="$TL:$PATH"
+          command -v latexpand >/dev/null || tlmgr install latexpand
+          bash -euo pipefail -c "${PRE:-true}"
+          latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
+          bash -euo pipefail -c "${POST:-true}"
 
       # Printed on every PR because the closure must not depend on who built:
       # git is case-sensitive and the Windows filesystem is not, so a locally
@@ -101,7 +125,7 @@ jobs:
     name: Validate semver bump
     needs: [documents, build]
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
         with:
