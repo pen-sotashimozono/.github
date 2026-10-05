@@ -59,6 +59,7 @@ jobs:
       root: ${{ steps.ver.outputs.root }}
       stem: ${{ steps.ver.outputs.stem }}
       has-supplemental: ${{ steps.check.outputs.has-supplemental }}
+      has-draft: ${{ steps.draft.outputs.has-draft }}
     steps:
       - uses: actions/checkout@v7
 
@@ -120,6 +121,20 @@ jobs:
             echo "has-supplemental=true" >> "$GITHUB_OUTPUT"
           else
             echo "has-supplemental=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A root that provides the draft environment (.claude/rules/structure.md)
+      # gets a second PDF with the draft marking switched off. Every root
+      # carries its own preamble, so the definition is in the root itself.
+      - name: Check for a draft environment
+        id: draft
+        env:
+          ROOT: ${{ steps.ver.outputs.root }}
+        run: |
+          if grep -q '\\newenvironment{draft}' "$ROOT"; then
+            echo "has-draft=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-draft=false" >> "$GITHUB_OUTPUT"
           fi
 
   build-document:
@@ -255,6 +270,51 @@ jobs:
           name: diff
           path: out/diff.pdf
 
+  # The released PDF keeps the draft marking (colour, margin flag, closing
+  # rule): it is the record of what the author has not yet approved. This job
+  # builds the same source with the draft environment redefined to do nothing,
+  # for reading. Nothing in the source changes; a two-line wrapper root does
+  # the redefinition, so no latexmk option has to reach the container.
+  build-clean:
+    name: Build PDF without draft marking
+    needs: [setup]
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
+    if: needs.setup.outputs.has-draft == 'true'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compile without draft marking
+        if: runner.environment == 'github-hosted'
+        uses: xu-cheng/latex-action@v4
+        with:
+          root_file: clean.tex
+          latexmk_use_lualatex: true
+          pre_compile: |
+            mkdir -p out
+            printf '%s\n' '\AtBeginDocument{\renewenvironment{draft}{}{}}' '\input{${{ needs.setup.outputs.root }}}' > clean.tex
+
+      - name: Compile without draft marking on rosina (the runner's own TeX Live)
+        if: runner.environment != 'github-hosted'
+        env:
+          ROOT: clean.tex
+          PRE: |
+            mkdir -p out
+            printf '%s\n' '\AtBeginDocument{\renewenvironment{draft}{}{}}' '\input{${{ needs.setup.outputs.root }}}' > clean.tex
+        run: |
+          set -euo pipefail
+          # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
+          TL="$(ls -d "$HOME"/texlive/*/bin/*-linux 2>/dev/null | sort -V | tail -1)"
+          [ -n "$TL" ] || { echo "::error::no TeX Live under ~/texlive on this runner"; exit 1; }
+          export PATH="$TL:$PATH"
+          bash -euo pipefail -c "${PRE:-true}"
+          latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: clean
+          path: out/clean.pdf
+
   build-supplementary:
     name: Build supplementary
     needs: [setup]
@@ -301,9 +361,9 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [setup, build-document, build-diff, build-supplementary]
+    needs: [setup, build-document, build-diff, build-clean, build-supplementary]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
-    if: always() && needs.setup.result == 'success' && needs.build-document.result == 'success' && needs.build-diff.result != 'cancelled' && (needs.build-supplementary.result == 'success' || needs.build-supplementary.result == 'skipped')
+    if: always() && needs.setup.result == 'success' && needs.build-document.result == 'success' && needs.build-diff.result != 'cancelled' && needs.build-clean.result != 'cancelled' && (needs.build-supplementary.result == 'success' || needs.build-supplementary.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
         with:
@@ -355,6 +415,9 @@ jobs:
           fi
           if [ -f dl/diff/diff.pdf ]; then
             mv dl/diff/diff.pdf "release/diff-${TAG}.pdf"
+          fi
+          if [ -f dl/clean/clean.pdf ]; then
+            mv dl/clean/clean.pdf "release/clean-${TAG}.pdf"
           fi
           if [ -f dl/supplementary/supplemental.pdf ]; then
             mv dl/supplementary/supplemental.pdf "release/supplemental-${TAG}.pdf"
