@@ -76,16 +76,17 @@ jobs:
             sh .github/tools/figures/tikz-tensors.sh ensure
           fi
 
-      # The action runs `<compiler> <args> <root_file>` in the same container
-      # the documents are compiled in, which spells
-      # `bash .github/tools/figures/build.sh --pdf-only figures/src`.
+      # In the same container the documents are compiled in. The action is
+      # made to compile one existing file, so the build is its pre_compile
+      # and the compile itself is `true <root_file>`, which does nothing.
       - name: Build the pages
         if: steps.plan.outputs.built == 'true' && steps.cache.outputs.cache-hit != 'true' && runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
         with:
-          compiler: bash
-          args: .github/tools/figures/build.sh --pdf-only
-          root_file: figures/src
+          pre_compile: bash .github/tools/figures/build.sh --pdf-only
+          compiler: "true"
+          args: ""
+          root_file: .github/tools/figures/build.sh
 
       - name: Build the pages on rosina (the runner's own TeX Live)
         if: steps.plan.outputs.built == 'true' && steps.cache.outputs.cache-hit != 'true' && runner.environment != 'github-hosted'
