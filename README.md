@@ -14,7 +14,6 @@ maintained in one place.
 | --- | --- | --- |
 | `paper-build.yml` | Build every document in `docs.toml`; on a PR, check that exactly the affected documents bumped | `latex-ci.yml` |
 | `paper-release.yml` | Build and publish one document as `v<version>-<document>` with PDF, latexdiff PDF and arXiv bundle | `Release.yml` |
-| `paper-figures.yml` | Build the PDFs of the figure pages once, cached, as the artifact `figure-pages`; called by the two above, beside the jobs that need no build | — |
 | `paper-auto-release.yml` | After a merge, dispatch a release for every document whose version has no tag yet | `AutoRelease.yml` |
 | `paper-version-check.yml` | Build-free check that each version in `docs.toml` moved at most one semver step | `VersionCheck.yml` |
 | `paper-verify-references.yml` | Resolve every DOI / arXiv id in `references.bib` against Crossref and arXiv | `VerifyReferences.yml` |
