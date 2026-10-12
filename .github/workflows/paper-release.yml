@@ -341,6 +341,20 @@ jobs:
       # latexdiff on the root alone shows nothing when the change lives in an
       # \input child, which is where the content sits once the document is
       # split into notes/*.tex — so flatten both revisions first.
+      #
+      # Three things made this compile fail while the release went on without
+      # its diff (the job continues on error), and each is met here:
+      #   - A deleted passage keeps its \includegraphics, and a figure that
+      #     the new revision no longer has was not found. The files below
+      #     figures/ that only the previous revision has are copied in, without
+      #     replacing any file of the new one.
+      #   - latexdiff marks changes inside a displayed equation term by term,
+      #     which breaks alignments. --math-markup=whole sets a changed
+      #     equation as a whole, the old one deleted and the new one added.
+      #   - A deleted equation keeps its \label in a starred environment, which
+      #     amsmath refuses. Inside deleted text \label does nothing
+      #     (difflabels.tex, read before \begin{document}); the labels of the
+      #     new text are the ones that count.
       - name: Compile latexdiff
         if: steps.tags.outputs.prev != '' && runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
@@ -351,7 +365,14 @@ jobs:
             mkdir -p out
             (cd prev_rev && latexpand "${{ needs.setup.outputs.root }}" > ../prev_flat.tex)
             latexpand "${{ needs.setup.outputs.root }}" > new_flat.tex
-            latexdiff prev_flat.tex new_flat.tex > diff.tex
+            latexdiff --math-markup=whole prev_flat.tex new_flat.tex > diff.tex
+            printf '%s\n' '\makeatletter\let\DIFdelwithlabels\DIFdel\DeclareRobustCommand{\DIFdel}[1]{\begingroup\let\label\@gobble\DIFdelwithlabels{#1}\endgroup}\makeatother' > difflabels.tex
+            sed 's/^\\begin{document}/\\input{difflabels}\\begin{document}/' diff.tex > diff.tmp && mv diff.tmp diff.tex
+            if [ -d prev_rev/figures ]; then
+              (cd prev_rev/figures && find . -type f) | while IFS= read -r f; do
+                [ -e "figures/$f" ] || { mkdir -p "figures/$(dirname "$f")"; cp "prev_rev/figures/$f" "figures/$f"; }
+              done
+            fi
 
       - name: Compile latexdiff on rosina (the runner's own TeX Live)
         if: steps.tags.outputs.prev != '' && runner.environment != 'github-hosted'
@@ -361,7 +382,14 @@ jobs:
             mkdir -p out
             (cd prev_rev && latexpand "${{ needs.setup.outputs.root }}" > ../prev_flat.tex)
             latexpand "${{ needs.setup.outputs.root }}" > new_flat.tex
-            latexdiff prev_flat.tex new_flat.tex > diff.tex
+            latexdiff --math-markup=whole prev_flat.tex new_flat.tex > diff.tex
+            printf '%s\n' '\makeatletter\let\DIFdelwithlabels\DIFdel\DeclareRobustCommand{\DIFdel}[1]{\begingroup\let\label\@gobble\DIFdelwithlabels{#1}\endgroup}\makeatother' > difflabels.tex
+            sed 's/^\\begin{document}/\\input{difflabels}\\begin{document}/' diff.tex > diff.tmp && mv diff.tmp diff.tex
+            if [ -d prev_rev/figures ]; then
+              (cd prev_rev/figures && find . -type f) | while IFS= read -r f; do
+                [ -e "figures/$f" ] || { mkdir -p "figures/$(dirname "$f")"; cp "prev_rev/figures/$f" "figures/$f"; }
+              done
+            fi
         run: |
           set -euo pipefail
           # A user-level TeX Live under ~/texlive (no Docker, no sudo on rosina).
