@@ -607,7 +607,9 @@ jobs:
             mv dl/supplementary/supplemental.pdf "release/supplemental-${TAG}.pdf"
           fi
           if [ -d dl/arxiv-src ]; then
-            (cd dl/arxiv-src && zip "../../release/arxiv-bundle-${TAG}.zip" ./*)
+            # -r: figures sit below assets/<topic>/, and without it zip stores
+            # the directory's name and none of its files.
+            (cd dl/arxiv-src && zip -r "../../release/arxiv-bundle-${TAG}.zip" .)
           fi
           echo "Assets:"
           ls -1 release/
