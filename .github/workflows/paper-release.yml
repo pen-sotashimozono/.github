@@ -144,6 +144,52 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Figure pages. A repository whose build.sh knows --pdf-only builds the
+      # PDFs under figures/assets/ and does not commit them: its .latexmkrc
+      # makes the ones that are missing before a document compiles. They are
+      # cached here under a key of everything a page can read (the pages, the
+      # files beside build.sh, the tikz-tensors pin), so a run that changes no
+      # figure builds none. The month is in the key so that they are rebuilt
+      # with the current TeX Live now and then. Any other repository skips
+      # all of this.
+      - name: Does this repository build its figure PDFs?
+        id: pages
+        env:
+          SOURCES: ${{ hashFiles('figures/src/**', '.github/tools/figures/*') }}
+        run: |
+          set -euo pipefail
+          if grep -qs -- '--pdf-only' .github/tools/figures/build.sh \
+              && [ -n "$(find figures/src -name '*.tex' -print -quit 2>/dev/null)" ]; then
+            # The submodule is one entry in the tree: its pin.
+            PIN="$(git rev-parse -q --verify 'HEAD:.github/tools/figures/tikz-tensors' || echo none)"
+            echo "key=figure-pdfs-${RUNNER_ENVIRONMENT}-$(date -u +%Y-%m)-${PIN}-${SOURCES}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore the PDFs of the figure pages
+        id: pages-cache
+        if: steps.pages.outputs.key != ''
+        uses: actions/cache@v5
+        with:
+          path: figures/assets/**/*.pdf
+          key: ${{ steps.pages.outputs.key }}
+
+      # Restored files keep the time they were built, and the checkout has
+      # just stamped every page with the time of this job; .latexmkrc rebuilds
+      # a PDF older than its page. The key says they match, so say it in time.
+      - name: Mark the restored PDFs newer than their pages
+        if: steps.pages-cache.outputs.cache-hit == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
+
+      # Nothing restored: the pages are built below, by .latexmkrc. The
+      # submodule is fetched here, on the runner, so that the LaTeX container
+      # needs neither git nor the network.
+      - name: Fetch tikz-tensors
+        if: steps.pages.outputs.key != '' && steps.pages-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f .github/tools/figures/tikz-tensors.sh ]; then
+            sh .github/tools/figures/tikz-tensors.sh ensure
+          fi
+
       - if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
         with:
@@ -200,6 +246,52 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # Figure pages. A repository whose build.sh knows --pdf-only builds the
+      # PDFs under figures/assets/ and does not commit them: its .latexmkrc
+      # makes the ones that are missing before a document compiles. They are
+      # cached here under a key of everything a page can read (the pages, the
+      # files beside build.sh, the tikz-tensors pin), so a run that changes no
+      # figure builds none. The month is in the key so that they are rebuilt
+      # with the current TeX Live now and then. Any other repository skips
+      # all of this.
+      - name: Does this repository build its figure PDFs?
+        id: pages
+        env:
+          SOURCES: ${{ hashFiles('figures/src/**', '.github/tools/figures/*') }}
+        run: |
+          set -euo pipefail
+          if grep -qs -- '--pdf-only' .github/tools/figures/build.sh \
+              && [ -n "$(find figures/src -name '*.tex' -print -quit 2>/dev/null)" ]; then
+            # The submodule is one entry in the tree: its pin.
+            PIN="$(git rev-parse -q --verify 'HEAD:.github/tools/figures/tikz-tensors' || echo none)"
+            echo "key=figure-pdfs-${RUNNER_ENVIRONMENT}-$(date -u +%Y-%m)-${PIN}-${SOURCES}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore the PDFs of the figure pages
+        id: pages-cache
+        if: steps.pages.outputs.key != ''
+        uses: actions/cache@v5
+        with:
+          path: figures/assets/**/*.pdf
+          key: ${{ steps.pages.outputs.key }}
+
+      # Restored files keep the time they were built, and the checkout has
+      # just stamped every page with the time of this job; .latexmkrc rebuilds
+      # a PDF older than its page. The key says they match, so say it in time.
+      - name: Mark the restored PDFs newer than their pages
+        if: steps.pages-cache.outputs.cache-hit == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
+
+      # Nothing restored: the pages are built below, by .latexmkrc. The
+      # submodule is fetched here, on the runner, so that the LaTeX container
+      # needs neither git nor the network.
+      - name: Fetch tikz-tensors
+        if: steps.pages.outputs.key != '' && steps.pages-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f .github/tools/figures/tikz-tensors.sh ]; then
+            sh .github/tools/figures/tikz-tensors.sh ensure
+          fi
 
       # Only this document's own tags: a notes release must diff against the
       # previous notes, not against whatever was tagged most recently.
@@ -284,6 +376,52 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Figure pages. A repository whose build.sh knows --pdf-only builds the
+      # PDFs under figures/assets/ and does not commit them: its .latexmkrc
+      # makes the ones that are missing before a document compiles. They are
+      # cached here under a key of everything a page can read (the pages, the
+      # files beside build.sh, the tikz-tensors pin), so a run that changes no
+      # figure builds none. The month is in the key so that they are rebuilt
+      # with the current TeX Live now and then. Any other repository skips
+      # all of this.
+      - name: Does this repository build its figure PDFs?
+        id: pages
+        env:
+          SOURCES: ${{ hashFiles('figures/src/**', '.github/tools/figures/*') }}
+        run: |
+          set -euo pipefail
+          if grep -qs -- '--pdf-only' .github/tools/figures/build.sh \
+              && [ -n "$(find figures/src -name '*.tex' -print -quit 2>/dev/null)" ]; then
+            # The submodule is one entry in the tree: its pin.
+            PIN="$(git rev-parse -q --verify 'HEAD:.github/tools/figures/tikz-tensors' || echo none)"
+            echo "key=figure-pdfs-${RUNNER_ENVIRONMENT}-$(date -u +%Y-%m)-${PIN}-${SOURCES}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore the PDFs of the figure pages
+        id: pages-cache
+        if: steps.pages.outputs.key != ''
+        uses: actions/cache@v5
+        with:
+          path: figures/assets/**/*.pdf
+          key: ${{ steps.pages.outputs.key }}
+
+      # Restored files keep the time they were built, and the checkout has
+      # just stamped every page with the time of this job; .latexmkrc rebuilds
+      # a PDF older than its page. The key says they match, so say it in time.
+      - name: Mark the restored PDFs newer than their pages
+        if: steps.pages-cache.outputs.cache-hit == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
+
+      # Nothing restored: the pages are built below, by .latexmkrc. The
+      # submodule is fetched here, on the runner, so that the LaTeX container
+      # needs neither git nor the network.
+      - name: Fetch tikz-tensors
+        if: steps.pages.outputs.key != '' && steps.pages-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f .github/tools/figures/tikz-tensors.sh ]; then
+            sh .github/tools/figures/tikz-tensors.sh ensure
+          fi
+
       - name: Compile without draft marking
         if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
@@ -322,6 +460,52 @@ jobs:
     if: needs.setup.outputs.has-supplemental == 'true'
     steps:
       - uses: actions/checkout@v7
+
+      # Figure pages. A repository whose build.sh knows --pdf-only builds the
+      # PDFs under figures/assets/ and does not commit them: its .latexmkrc
+      # makes the ones that are missing before a document compiles. They are
+      # cached here under a key of everything a page can read (the pages, the
+      # files beside build.sh, the tikz-tensors pin), so a run that changes no
+      # figure builds none. The month is in the key so that they are rebuilt
+      # with the current TeX Live now and then. Any other repository skips
+      # all of this.
+      - name: Does this repository build its figure PDFs?
+        id: pages
+        env:
+          SOURCES: ${{ hashFiles('figures/src/**', '.github/tools/figures/*') }}
+        run: |
+          set -euo pipefail
+          if grep -qs -- '--pdf-only' .github/tools/figures/build.sh \
+              && [ -n "$(find figures/src -name '*.tex' -print -quit 2>/dev/null)" ]; then
+            # The submodule is one entry in the tree: its pin.
+            PIN="$(git rev-parse -q --verify 'HEAD:.github/tools/figures/tikz-tensors' || echo none)"
+            echo "key=figure-pdfs-${RUNNER_ENVIRONMENT}-$(date -u +%Y-%m)-${PIN}-${SOURCES}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore the PDFs of the figure pages
+        id: pages-cache
+        if: steps.pages.outputs.key != ''
+        uses: actions/cache@v5
+        with:
+          path: figures/assets/**/*.pdf
+          key: ${{ steps.pages.outputs.key }}
+
+      # Restored files keep the time they were built, and the checkout has
+      # just stamped every page with the time of this job; .latexmkrc rebuilds
+      # a PDF older than its page. The key says they match, so say it in time.
+      - name: Mark the restored PDFs newer than their pages
+        if: steps.pages-cache.outputs.cache-hit == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
+
+      # Nothing restored: the pages are built below, by .latexmkrc. The
+      # submodule is fetched here, on the runner, so that the LaTeX container
+      # needs neither git nor the network.
+      - name: Fetch tikz-tensors
+        if: steps.pages.outputs.key != '' && steps.pages-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f .github/tools/figures/tikz-tensors.sh ]; then
+            sh .github/tools/figures/tikz-tensors.sh ensure
+          fi
 
       - if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
