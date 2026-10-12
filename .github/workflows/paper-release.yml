@@ -137,12 +137,31 @@ jobs:
             echo "has-draft=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Beside setup; every job that compiles waits for it.
+  figures:
+    uses: ./.github/workflows/paper-figures.yml
+
   build-document:
     name: Build document
-    needs: [setup]
+    needs: [setup, figures]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
+
+      # Built once by the figures job. A checkout stamps every page with the
+      # time of this job, later than the PDFs were made, and the caller's
+      # .latexmkrc rebuilds a PDF older than its page -- so they are stamped
+      # again here, and it finds nothing to do.
+      - name: Take the figure pages
+        if: needs.figures.outputs.built == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: figure-pages
+          path: figures/assets
+
+      - name: Mark them newer than their pages
+        if: needs.figures.outputs.built == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
 
       - if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4
@@ -193,13 +212,28 @@ jobs:
 
   build-diff:
     name: Build latexdiff PDF
-    needs: [setup]
+    needs: [setup, figures]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # Built once by the figures job. A checkout stamps every page with the
+      # time of this job, later than the PDFs were made, and the caller's
+      # .latexmkrc rebuilds a PDF older than its page -- so they are stamped
+      # again here, and it finds nothing to do.
+      - name: Take the figure pages
+        if: needs.figures.outputs.built == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: figure-pages
+          path: figures/assets
+
+      - name: Mark them newer than their pages
+        if: needs.figures.outputs.built == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
 
       # Only this document's own tags: a notes release must diff against the
       # previous notes, not against whatever was tagged most recently.
@@ -277,12 +311,27 @@ jobs:
   # the redefinition, so no latexmk option has to reach the container.
   build-clean:
     name: Build PDF without draft marking
-    needs: [setup]
+    needs: [setup, figures]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     if: needs.setup.outputs.has-draft == 'true'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
+
+      # Built once by the figures job. A checkout stamps every page with the
+      # time of this job, later than the PDFs were made, and the caller's
+      # .latexmkrc rebuilds a PDF older than its page -- so they are stamped
+      # again here, and it finds nothing to do.
+      - name: Take the figure pages
+        if: needs.figures.outputs.built == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: figure-pages
+          path: figures/assets
+
+      - name: Mark them newer than their pages
+        if: needs.figures.outputs.built == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
 
       - name: Compile without draft marking
         if: runner.environment == 'github-hosted'
@@ -317,11 +366,26 @@ jobs:
 
   build-supplementary:
     name: Build supplementary
-    needs: [setup]
+    needs: [setup, figures]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     if: needs.setup.outputs.has-supplemental == 'true'
     steps:
       - uses: actions/checkout@v7
+
+      # Built once by the figures job. A checkout stamps every page with the
+      # time of this job, later than the PDFs were made, and the caller's
+      # .latexmkrc rebuilds a PDF older than its page -- so they are stamped
+      # again here, and it finds nothing to do.
+      - name: Take the figure pages
+        if: needs.figures.outputs.built == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: figure-pages
+          path: figures/assets
+
+      - name: Mark them newer than their pages
+        if: needs.figures.outputs.built == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
 
       - if: runner.environment == 'github-hosted'
         uses: xu-cheng/latex-action@v4

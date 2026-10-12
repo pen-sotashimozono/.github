@@ -3,6 +3,13 @@ name: Paper build (reusable)
 # Builds every root document in docs.toml, and on a PR checks that the versions
 # match what the build says changed. The matrix is generated from the manifest.
 #
+#   documents ─┐
+#   figures   ─┴─> build (one job per document) ──> version-check
+#
+# The first two run side by side: listing the documents, and building the
+# figure pages once for all of them (paper-figures.yml). Each document then
+# compiles in its own job, and the bump check reads their build records.
+#
 # The version check lives here rather than in its own workflow because it needs
 # the build records latexmk writes (out/<stem>.fls, out/<stem>.fdb_latexmk).
 # Without them it could only compare root files and would miss every \input
@@ -41,9 +48,13 @@ jobs:
           echo "Documents: ${IDS}"
           echo "ids=${IDS}" >> "$GITHUB_OUTPUT"
 
+  # Beside the jobs that need no build; the compile jobs wait for it.
+  figures:
+    uses: ./.github/workflows/paper-figures.yml
+
   build:
     name: Build ${{ matrix.doc }}
-    needs: [documents]
+    needs: [documents, figures]
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","rosina"]') || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -51,6 +62,21 @@ jobs:
         doc: ${{ fromJSON(needs.documents.outputs.ids) }}
     steps:
       - uses: actions/checkout@v7
+
+      # Built once by the figures job. A checkout stamps every page with the
+      # time of this job, later than the PDFs were made, and the caller's
+      # .latexmkrc rebuilds a PDF older than its page -- so they are stamped
+      # again here, and it finds nothing to do.
+      - name: Take the figure pages
+        if: needs.figures.outputs.built == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: figure-pages
+          path: figures/assets
+
+      - name: Mark them newer than their pages
+        if: needs.figures.outputs.built == 'true'
+        run: find figures/assets -name '*.pdf' -exec touch {} +
 
       - id: doc
         env:
