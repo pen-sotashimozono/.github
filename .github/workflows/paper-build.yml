@@ -4,7 +4,8 @@ name: Paper build (reusable)
 # match what the build says changed. The matrix is generated from the manifest.
 #
 # The version check lives here rather than in its own workflow because it needs
-# the build records latexmk writes (out/<stem>.fls, out/<stem>.fdb_latexmk).
+# the build records latexmk writes (<stem>.fls, <stem>.fdb_latexmk, in out/tmp/
+# or in out/, according to the caller's .latexmkrc).
 # Without them it could only compare root files and would miss every \input
 # child. paper-version-check.yml carries the weaker rule that needs no build.
 #
@@ -182,6 +183,8 @@ jobs:
         with:
           name: build-record-${{ matrix.doc }}
           path: |
+            out/tmp/${{ steps.doc.outputs.stem }}.fls
+            out/tmp/${{ steps.doc.outputs.stem }}.fdb_latexmk
             out/${{ steps.doc.outputs.stem }}.fls
             out/${{ steps.doc.outputs.stem }}.fdb_latexmk
           retention-days: 1
@@ -208,7 +211,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          cp records/* out/
+          cp -r records/* out/
 
           # A full ref, not a shallow one: the closure diff needs a merge base.
           git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
