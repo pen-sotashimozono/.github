@@ -4,8 +4,8 @@ name: Paper build (reusable)
 # match what the build says changed. The matrix is generated from the manifest.
 #
 # The version check lives here rather than in its own workflow because it needs
-# the build records latexmk writes (<stem>.fls, <stem>.fdb_latexmk, in out/tmp/
-# or in out/, according to the caller's .latexmkrc).
+# the build records latexmk writes (<stem>.fls, <stem>.fdb_latexmk, in the aux
+# dir of the caller's .latexmkrc).
 # Without them it could only compare root files and would miss every \input
 # child. paper-version-check.yml carries the weaker rule that needs no build.
 #
@@ -177,16 +177,25 @@ jobs:
           path: out/${{ steps.doc.outputs.stem }}.pdf
           retention-days: 14
 
+      # Where latexmk keeps its auxiliary files is the caller's .latexmkrc to
+      # say (aux_dir.sh reads it); a caller without the script writes to out/.
+      - name: Locate the build record
+        id: aux
+        run: |
+          if [ -f .github/scripts/aux_dir.sh ]; then
+            echo "dir=$(sh .github/scripts/aux_dir.sh)" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=out" >> "$GITHUB_OUTPUT"
+          fi
+
       # Handed to version-check below, which cannot recompute them without
       # running every build a second time.
       - uses: actions/upload-artifact@v7
         with:
           name: build-record-${{ matrix.doc }}
           path: |
-            out/tmp/${{ steps.doc.outputs.stem }}.fls
-            out/tmp/${{ steps.doc.outputs.stem }}.fdb_latexmk
-            out/${{ steps.doc.outputs.stem }}.fls
-            out/${{ steps.doc.outputs.stem }}.fdb_latexmk
+            ${{ steps.aux.outputs.dir }}/${{ steps.doc.outputs.stem }}.fls
+            ${{ steps.aux.outputs.dir }}/${{ steps.doc.outputs.stem }}.fdb_latexmk
           retention-days: 1
 
   version-check:
