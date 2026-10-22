@@ -239,15 +239,41 @@ jobs:
           latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
           bash -euo pipefail -c "${POST:-true}"
 
-      - uses: actions/upload-artifact@v7
+      - name: Hand document over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/document"
+          mkdir -p "$DIR"
+          cp "out/${{ needs.setup.outputs.stem }}.pdf" "$DIR/"
+
+      - name: Hand document over as an artifact
+        if: runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
         with:
           name: document
           path: out/${{ needs.setup.outputs.stem }}.pdf
+          retention-days: 1
 
-      - uses: actions/upload-artifact@v7
+      - name: Hand arxiv-src over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/arxiv-src"
+          mkdir -p "$DIR"
+          cp -r "arxiv-src/." "$DIR/"
+
+      - name: Hand arxiv-src over as an artifact
+        if: runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
         with:
           name: arxiv-src
           path: arxiv-src/
+          retention-days: 1
 
   build-diff:
     name: Build latexdiff PDF
@@ -408,11 +434,23 @@ jobs:
           latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
           bash -euo pipefail -c "${POST:-true}"
 
-      - uses: actions/upload-artifact@v7
-        if: steps.tags.outputs.prev != ''
+      - name: Hand diff over on rosina
+        if: runner.environment != 'github-hosted' && steps.tags.outputs.prev != ''
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/diff"
+          mkdir -p "$DIR"
+          cp "out/diff.pdf" "$DIR/"
+
+      - name: Hand diff over as an artifact
+        if: runner.environment == 'github-hosted' && steps.tags.outputs.prev != ''
+        uses: actions/upload-artifact@v7
         with:
           name: diff
           path: out/diff.pdf
+          retention-days: 1
 
   # The released PDF keeps the draft marking (colour, margin flag, closing
   # rule): it is the record of what the author has not yet approved. This job
@@ -512,10 +550,23 @@ jobs:
           bash -euo pipefail -c "${PRE:-true}"
           latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
 
-      - uses: actions/upload-artifact@v7
+      - name: Hand clean over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/clean"
+          mkdir -p "$DIR"
+          cp "out/clean.pdf" "$DIR/"
+
+      - name: Hand clean over as an artifact
+        if: runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
         with:
           name: clean
           path: out/clean.pdf
+          retention-days: 1
 
   build-supplementary:
     name: Build supplementary
@@ -614,10 +665,23 @@ jobs:
           latexmk -lualatex -file-line-error -halt-on-error -interaction=nonstopmode "$ROOT"
           bash -euo pipefail -c "${POST:-true}"
 
-      - uses: actions/upload-artifact@v7
+      - name: Hand supplementary over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/supplementary"
+          mkdir -p "$DIR"
+          cp "out/supplemental.pdf" "$DIR/"
+
+      - name: Hand supplementary over as an artifact
+        if: runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
         with:
           name: supplementary
           path: out/supplemental.pdf
+          retention-days: 1
 
   release:
     name: GitHub Release
@@ -629,7 +693,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v8
+      # The build jobs hand their files over through a directory on rosina,
+      # where every runner is one machine, so a release costs no artifact
+      # storage; GitHub-hosted runs hand them over as artifacts kept one day.
+      # Either way dl/<name>/ holds what job <name> produced.
+      - name: Take the build files over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl
+          if [ -d "$HOME/ci-share/$SHARE" ]; then
+            cp -r "$HOME/ci-share/$SHARE/." dl/
+            rm -rf "$HOME/ci-share/$SHARE"
+          fi
+          # Hand-overs left behind by runs that died before this step.
+          # The share is ci-share/<owner>/<repo>/<run>-<attempt>.
+          find "$HOME/ci-share" -mindepth 3 -maxdepth 3 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Take the build files over as artifacts
+        if: runner.environment == 'github-hosted'
+        uses: actions/download-artifact@v8
         with:
           path: dl/
 
