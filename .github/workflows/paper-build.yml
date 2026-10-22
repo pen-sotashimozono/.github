@@ -198,12 +198,12 @@ jobs:
       # Handed to version-check below, which cannot recompute them without
       # running every build a second time. On rosina every runner is one
       # machine, so the hand-over is a directory there and costs no artifact
-      # storage; version-check removes it. GitHub-hosted runs share nothing,
+      # storage; version-check sweeps old ones. GitHub-hosted runs share nothing,
       # so they hand over an artifact kept for one day.
       - name: Hand the build record over on rosina
         if: runner.environment != 'github-hosted' && github.event_name == 'pull_request'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
           AUX: ${{ steps.aux.outputs.dir }}
           STEM: ${{ steps.doc.outputs.stem }}
         run: |
@@ -235,14 +235,15 @@ jobs:
       - name: Take the build records over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           mkdir -p records
           cp "$HOME/ci-share/$SHARE/build-record/"* records/
-          rm -rf "$HOME/ci-share/$SHARE"
-          # Hand-overs left behind by runs that died before this step.
-          # The share is ci-share/<owner>/<repo>/<run>-<attempt>.
+          # The share is ci-share/<owner>/<repo>/<run>, one per run and not per
+          # attempt, and it is left in place: a re-run of the failed jobs, this
+          # one included, reads what the jobs that passed handed over. Shares
+          # older than two days are swept here.
           find "$HOME/ci-share" -mindepth 3 -maxdepth 3 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
       - name: Take the build records over as artifacts

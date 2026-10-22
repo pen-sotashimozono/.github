@@ -242,7 +242,7 @@ jobs:
       - name: Hand document over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           DIR="$HOME/ci-share/$SHARE/document"
@@ -260,7 +260,7 @@ jobs:
       - name: Hand arxiv-src over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           DIR="$HOME/ci-share/$SHARE/arxiv-src"
@@ -437,7 +437,7 @@ jobs:
       - name: Hand diff over on rosina
         if: runner.environment != 'github-hosted' && steps.tags.outputs.prev != ''
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           DIR="$HOME/ci-share/$SHARE/diff"
@@ -553,7 +553,7 @@ jobs:
       - name: Hand clean over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           DIR="$HOME/ci-share/$SHARE/clean"
@@ -668,7 +668,7 @@ jobs:
       - name: Hand supplementary over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           DIR="$HOME/ci-share/$SHARE/supplementary"
@@ -700,16 +700,17 @@ jobs:
       - name: Take the build files over on rosina
         if: runner.environment != 'github-hosted'
         env:
-          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          SHARE: ${{ format('{0}/{1}', github.repository, github.run_id) }}
         run: |
           set -euo pipefail
           mkdir -p dl
           if [ -d "$HOME/ci-share/$SHARE" ]; then
             cp -r "$HOME/ci-share/$SHARE/." dl/
-            rm -rf "$HOME/ci-share/$SHARE"
           fi
-          # Hand-overs left behind by runs that died before this step.
-          # The share is ci-share/<owner>/<repo>/<run>-<attempt>.
+          # The share is ci-share/<owner>/<repo>/<run>, one per run and not per
+          # attempt, and it is left in place: a re-run of the failed jobs, this
+          # one included, reads what the jobs that passed handed over. Shares
+          # older than two days are swept here.
           find "$HOME/ci-share" -mindepth 3 -maxdepth 3 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
       - name: Take the build files over as artifacts
