@@ -171,11 +171,18 @@ jobs:
       - name: Print document closure
         run: python3 .github/scripts/closure.py list "${{ matrix.doc }}"
 
-      - uses: actions/upload-artifact@v7
+      # A preview of the PDF, on GitHub-hosted runs only. Artifact storage is
+      # one quota for the whole organisation, and a full quota must not turn a
+      # build that compiled into a failed check, so the upload may fail. On
+      # rosina the PDF is built locally anyway and no preview is kept.
+      - name: Upload the PDF for preview
+        if: runner.environment == 'github-hosted'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.doc }}-pdf
           path: out/${{ steps.doc.outputs.stem }}.pdf
-          retention-days: 14
+          retention-days: 3
 
       # Where latexmk keeps its auxiliary files is the caller's .latexmkrc to
       # say (aux_dir.sh reads it); a caller without the script writes to out/.
@@ -189,8 +196,25 @@ jobs:
           fi
 
       # Handed to version-check below, which cannot recompute them without
-      # running every build a second time.
-      - uses: actions/upload-artifact@v7
+      # running every build a second time. On rosina every runner is one
+      # machine, so the hand-over is a directory there and costs no artifact
+      # storage; version-check removes it. GitHub-hosted runs share nothing,
+      # so they hand over an artifact kept for one day.
+      - name: Hand the build record over on rosina
+        if: runner.environment != 'github-hosted' && github.event_name == 'pull_request'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+          AUX: ${{ steps.aux.outputs.dir }}
+          STEM: ${{ steps.doc.outputs.stem }}
+        run: |
+          set -euo pipefail
+          DIR="$HOME/ci-share/$SHARE/build-record"
+          mkdir -p "$DIR"
+          cp "$AUX/$STEM.fls" "$AUX/$STEM.fdb_latexmk" "$DIR/"
+
+      - name: Hand the build record over as an artifact
+        if: runner.environment == 'github-hosted' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
         with:
           name: build-record-${{ matrix.doc }}
           path: |
@@ -208,7 +232,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v8
+      - name: Take the build records over on rosina
+        if: runner.environment != 'github-hosted'
+        env:
+          SHARE: ${{ format('{0}/{1}-{2}', github.repository, github.run_id, github.run_attempt) }}
+        run: |
+          set -euo pipefail
+          mkdir -p records
+          cp "$HOME/ci-share/$SHARE/build-record/"* records/
+          rm -rf "$HOME/ci-share/$SHARE"
+          # Hand-overs left behind by runs that died before this step.
+          # The share is ci-share/<owner>/<repo>/<run>-<attempt>.
+          find "$HOME/ci-share" -mindepth 3 -maxdepth 3 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Take the build records over as artifacts
+        if: runner.environment == 'github-hosted'
+        uses: actions/download-artifact@v8
         with:
           pattern: build-record-*
           path: records/
